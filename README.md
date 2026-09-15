@@ -30,6 +30,11 @@ collect.
 **Backend** (`server/`) — Node.js + SQLite
 - Ingestion of call records from all devices (per-device analytics)
 - Community spam reports
+- **Honeypot collector** — DID/SIP webhooks (`POST /api/v1/honeypot/call`,
+  JSON or Twilio form format) instantly brand any caller who dials your bait
+  numbers as spam
+- **Admin dashboard** — `/admin` web UI: stats, top spam numbers,
+  block/allow actions, one-click AI retraining (guarded by `ADMIN_TOKEN`)
 - **Independent reputation scoring**: reports + call frequency + device
   reach + line type + aggressive patterns
 - **AI scoring model** (logistic regression, pure JS, zero dependencies):
@@ -94,6 +99,8 @@ server/               Node.js backend
 | POST | `/api/v1/report` | `{number, category, token}` — community spam report |
 | GET | `/api/v1/top-blocked?token=` | `{numbers: [{number, score}]}` for the app's local blocklist |
 | GET | `/api/v1/model?token=` | trained model metadata + metrics |
+| POST | `/api/v1/honeypot/call?token=` | honeypot webhook: `{did, from}` or Twilio `From`/`To` |
+| GET | `/api/v1/admin/*?token=` | admin stats/numbers/block/allow/retrain (needs `ADMIN_TOKEN`) |
 | GET | `/health` | liveness |
 
 ## Permissions (app)
@@ -119,6 +126,18 @@ See `server/README.md` for backend deployment.
 
 CI (GitHub Actions) builds the APK on every push and runs the server test
 suite.
+
+## Release build
+
+1. Generate a keystore (once):
+       keytool -genkeypair -v -keystore keystore/release.keystore \
+         -alias robocallguard -keyalg RSA -keysize 2048 -validity 10000
+2. Copy `keystore.properties.example` → `keystore.properties` and fill in
+   the passwords (both files are gitignored).
+3. `./gradlew assembleRelease` → `app/build/outputs/apk/release/app-release.apk`
+
+Without `keystore.properties`, release builds fall back to debug signing
+(placeholder only — not for distribution).
 
 ## Training the AI model
 
@@ -157,7 +176,8 @@ needed at any point.
 - [x] Screening engine, rules UI, call log, notifications
 - [x] Independent reputation backend + community reports
 - [x] AI scoring model + training pipeline (tested in CI)
-- [ ] Honeypot collector (bait robocallers) + admin dashboard
+- [x] Honeypot collector + admin dashboard
+- [x] Release build configuration
 - [ ] Caller-ID overlay (dialer app) and branded business data
 - [ ] Opt-in audio screening (with legal review)
-- [ ] Release signing + distribution
+- [ ] Distribution/signing for stores

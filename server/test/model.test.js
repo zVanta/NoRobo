@@ -10,11 +10,13 @@ test('extractFeatures returns one value per named feature', () => {
     calls_last24h: 4,
     calls_last7d: 9,
     distinct_devices: 5,
+    honeypot_hits: 2,
     line_type: 'voip'
   });
   assert.strictEqual(x.length, FEATURE_NAMES.length);
-  assert.strictEqual(x[5], 1); // is_voip
-  assert.strictEqual(x[6], 0); // is_landline
+  assert.strictEqual(x[5], 2); // honeypot_hits
+  assert.strictEqual(x[6], 1); // is_voip
+  assert.strictEqual(x[7], 0); // is_landline
 });
 
 test('logistic regression reaches strong accuracy on synthetic data', () => {
@@ -34,6 +36,7 @@ test('predict scores obvious spam high and clean contact low', () => {
     calls_last24h: 5,
     calls_last7d: 9,
     distinct_devices: 6,
+    honeypot_hits: 1,
     line_type: 'voip'
   }));
   assert.ok(spam > 0.9, `expected high spam score, got ${spam}`);
@@ -44,6 +47,7 @@ test('predict scores obvious spam high and clean contact low', () => {
     calls_last24h: 0,
     calls_last7d: 1,
     distinct_devices: 1,
+    honeypot_hits: 0,
     line_type: 'mobile'
   }));
   assert.ok(legit < 0.1, `expected low spam score, got ${legit}`);

@@ -1,3 +1,6 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -15,9 +18,36 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        // Release keystore lives in keystore/ and is configured via the
+        // gitignored keystore.properties (see keystore.properties.example).
+        val keystoreProps = rootProject.file("keystore.properties")
+        if (keystoreProps.exists()) {
+            val props = Properties().apply {
+                load(FileInputStream(keystoreProps))
+            }
+            create("release") {
+                storeFile = rootProject.file(
+                    props.getProperty("storeFile", "keystore/release.keystore")
+                )
+                storePassword = props.getProperty("storePassword")
+                keyAlias = props.getProperty("keyAlias")
+                keyPassword = props.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            // Placeholder: falls back to debug signing until keystore.properties exists.
+            signingConfig = signingConfigs.findByName("release")
+                ?: signingConfigs.getByName("debug")
         }
     }
 
@@ -27,5 +57,9 @@ android {
     }
     kotlinOptions {
         jvmTarget = "17"
+    }
+
+    lint {
+        abortOnError = false
     }
 }

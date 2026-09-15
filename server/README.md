@@ -10,7 +10,10 @@ reports, call frequency, device reach, line type).
 | POST | `/api/v1/lookup` | `{number, token}` → `{carrier, lineType, spamScore, business, ...}` |
 | POST | `/api/v1/calls` | `{device, token, calls: [...]}` → ingest call records |
 | POST | `/api/v1/report` | `{number, category, token}` → community spam report |
+| POST | `/api/v1/honeypot/call` | honeypot webhook (JSON or Twilio form) |
 | GET | `/api/v1/top-blocked?token=` | `{numbers: [{number, score}]}` for the app's local blocklist |
+| GET | `/api/v1/model?token=` | AI model metadata + metrics |
+| GET | `/api/v1/admin/*?token=` | admin stats/numbers/block/allow/retrain |
 | GET | `/health` | liveness |
 
 ## Deploy on Debian
@@ -66,3 +69,21 @@ node --test                        # run the test suite (no deps needed)
 The lookup API returns `aiScore`/`aiSpam` and `/api/v1/model` exposes
 metrics. The heuristic scorer always provides a safety floor beneath the
 model score. Retrain periodically (e.g. cron) as data accumulates.
+
+## Honeypot collector
+
+Point DID/SIP provider webhooks at:
+
+    POST /api/v1/honeypot/call?token=<AUTH_TOKEN>
+    JSON:  {"did": "+12125550100", "from": "+18005550123", "source": "twilio"}
+    Twilio: form-encoded From / To
+
+Any number that calls your bait DIDs gets `honeypot_hits` incremented — an
+immediate +0.8 reputation boost and an AI feature. Publish the DIDs where
+robocall scrapers find them to start baiting callers.
+
+## Admin dashboard
+
+Set `ADMIN_TOKEN` in `.env`, then open `https://your-domain/admin` and
+paste the token. The dashboard shows platform stats, top spam numbers,
+and block/allow controls, with one-click AI retraining.

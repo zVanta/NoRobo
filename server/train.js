@@ -144,6 +144,7 @@ function syntheticDataset(n = 4000, seed = 42) {
       ? Math.min(callsTotal, calls24 + Math.floor(rand() * 8))
       : Math.floor(rand() * 5);
     const devices = spam ? 1 + Math.floor(rand() * 8) : 1;
+    const honeypot = spam ? (rand() < 0.3 ? 1 : 0) : 0;
     const voip = spam ? (rand() < 0.55 ? 1 : 0) : rand() < 0.05 ? 1 : 0;
     const landline = spam ? 0 : rand() < 0.3 ? 1 : 0;
     out.push({
@@ -153,6 +154,7 @@ function syntheticDataset(n = 4000, seed = 42) {
         calls24,
         calls7d,
         devices,
+        honeypot,
         voip,
         landline
       ],

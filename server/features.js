@@ -8,6 +8,7 @@ const FEATURE_NAMES = [
   'calls_last24h',
   'calls_last7d',
   'distinct_devices',
+  'honeypot_hits',
   'is_voip',
   'is_landline'
 ];
@@ -26,6 +27,7 @@ function extractFeatures(rec) {
     rec.calls_last24h || 0,
     rec.calls_last7d || 0,
     rec.distinct_devices || 0,
+    Math.min(rec.honeypot_hits || 0, 10),
     isType(rec.line_type, 'voip') ? 1 : 0,
     isType(rec.line_type, 'landline') ? 1 : 0
   ];

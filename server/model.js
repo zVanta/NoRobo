@@ -5,7 +5,7 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { extractFeatures } = require('./features');
+const { extractFeatures, FEATURE_NAMES } = require('./features');
 
 const MODEL_PATH = process.env.MODEL_PATH || path.join(__dirname, 'data', 'model.json');
 
@@ -23,6 +23,10 @@ function loadModel() {
     const raw = fs.readFileSync(MODEL_PATH, 'utf8');
     const m = JSON.parse(raw);
     if (!m || !Array.isArray(m.weights)) return null;
+    // Reject stale models trained on a different feature set — the caller
+    // then falls back to the heuristic scorer.
+    if (!Array.isArray(m.featureNames) ||
+        m.featureNames.length !== FEATURE_NAMES.length) return null;
     return m;
   } catch {
     return null;

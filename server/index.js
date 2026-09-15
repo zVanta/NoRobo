@@ -26,6 +26,7 @@ const DAY_MS = 24 * 3600 * 1000;
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: false })); // Twilio-style webhooks
 
 function authed(req) {
   const tok =
@@ -99,6 +100,7 @@ app.post('/api/v1/lookup', async (req, res) => {
     calls_last24h: row ? row.calls_last24h : 0,
     calls_last7d: callsLast7d,
     distinct_devices: row ? row.distinct_devices : 0,
+    honeypot_hits: row ? row.honeypot_hits : 0,
     line_type: lineType
   });
 
@@ -122,8 +124,38 @@ app.post('/api/v1/lookup', async (req, res) => {
     callsTotal: row ? row.calls_total : 0,
     callsLast24h: row ? row.calls_last24h : 0,
     distinctDevices: row ? row.distinct_devices : 0,
+    honeypotHits: row ? row.honeypot_hits : 0,
     source: row || cached || (carrier ? 1 : 0) ? 'server' : 'none'
   });
+});
+
+// ---- Honeypot webhook -------------------------------------------------------
+// Point your DID/SIP provider webhooks here (JSON or Twilio-style form post):
+//   POST /api/v1/honeypot/call?token=...
+//   JSON: {did, from, source}   |   Twilio: form fields From, To
+app.post('/api/v1/honeypot/call', (req, res) => {
+  if (!authed(req)) return fail(res, 'unauthorized');
+  const did = digitsOf(req.body.did || req.body.To);
+  const from = digitsOf(req.body.from || req.body.From);
+  const source = String(req.body.source || 'webhook').slice(0, 32);
+  if (from.length < 7 || did.length < 7) return fail(res, 'invalid number', 400);
+
+  const now = Date.now();
+  db.prepare('INSERT INTO honeypot_calls (did, from_number, ts, source, created_at) VALUES (?, ?, ?, ?, ?)')
+    .run(did, from, now, source, now);
+
+  const existing = db.prepare('SELECT * FROM numbers WHERE number = ?').get(from);
+  if (existing) {
+    const merged = { ...existing, honeypot_hits: (existing.honeypot_hits || 0) + 1 };
+    db.prepare('UPDATE numbers SET honeypot_hits = honeypot_hits + 1, score = ?, updated_at = ? WHERE number = ?')
+      .run(computeScore(merged), now, from);
+  } else {
+    db.prepare(
+      `INSERT INTO numbers (number, calls_total, calls_last24h, last_seen, distinct_devices, reports_total, honeypot_hits, score, updated_at)
+       VALUES (?, 0, 0, ?, 0, 0, 1, ?, ?)`
+    ).run(from, now, computeScore({ honeypot_hits: 1 }), now);
+  }
+  res.json({ ok: true });
 });
 
 // ---- Model status ----------------------------------------------------------
@@ -249,6 +281,9 @@ app.get('/api/v1/top-blocked', (req, res) => {
 });
 
 app.get('/health', (req, res) => res.json({ ok: true }));
+
+// ---- Admin API + dashboard (see admin.js) -----------------------------------
+require('./admin').mount(app);
 
 app.listen(PORT, () => {
   console.log(`RobocallGuard backend listening on :${PORT}`);

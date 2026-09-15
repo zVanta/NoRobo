@@ -48,9 +48,23 @@ CREATE TABLE IF NOT EXISTS lookup_cache (
   business TEXT,
   checked_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS honeypot_calls (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  did TEXT NOT NULL,
+  from_number TEXT NOT NULL,
+  ts INTEGER NOT NULL,
+  source TEXT,
+  created_at INTEGER NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_calls_number ON calls(number);
 CREATE INDEX IF NOT EXISTS idx_calls_ts ON calls(ts);
 CREATE INDEX IF NOT EXISTS idx_numbers_score ON numbers(score DESC);
 `);
+
+// Migration: honeypot_hits column for numbers created before the honeypot feature.
+const numberCols = db.prepare('PRAGMA table_info(numbers)').all();
+if (!numberCols.some((c) => c.name === 'honeypot_hits')) {
+  db.exec('ALTER TABLE numbers ADD COLUMN honeypot_hits INTEGER NOT NULL DEFAULT 0');
+}
 
 module.exports = db;

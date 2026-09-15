@@ -13,6 +13,8 @@ local.properties
 *.jks
 *.keystore
 config.local.*
+keystore.properties
+keystore/
 server/config.local.json
 server/data/
 
