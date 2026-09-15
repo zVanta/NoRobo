@@ -56,6 +56,23 @@ CREATE TABLE IF NOT EXISTS honeypot_calls (
   source TEXT,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS sms_ingest (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  device TEXT NOT NULL,
+  sender TEXT,
+  body TEXT,
+  ts INTEGER NOT NULL,
+  flag TEXT,
+  ai_score REAL,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sms_labels (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sender TEXT,
+  body TEXT NOT NULL,
+  label TEXT NOT NULL,
+  ts INTEGER NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_calls_number ON calls(number);
 CREATE INDEX IF NOT EXISTS idx_calls_ts ON calls(ts);
 CREATE INDEX IF NOT EXISTS idx_numbers_score ON numbers(score DESC);

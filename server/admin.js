@@ -15,6 +15,7 @@ const path = require('path');
 const db = require('./db');
 const { computeScore } = require('./scoring');
 const ai = require('./model');
+const smsAi = require('./smsModel');
 
 const DAY_MS = 24 * 3600 * 1000;
 
@@ -113,6 +114,27 @@ function mount(app) {
     fs.mkdirSync(path.dirname(ai.MODEL_PATH), { recursive: true });
     fs.writeFileSync(ai.MODEL_PATH, JSON.stringify(model, null, 2));
     res.json({ ok: true, metrics: model.metrics });
+  });
+
+  router.post('/retrain-sms', (req, res) => {
+    const { loadDataset, trainSmsModel } = require('./train-sms');
+    const file = path.join(__dirname, 'datasets', 'SMSSpamCollection.txt');
+    if (!fs.existsSync(file)) {
+      return res.status(400).json({ error: 'dataset missing' });
+    }
+    const dataset = loadDataset(file);
+    const ours = db.prepare('SELECT body, label FROM sms_labels').all();
+    for (const r of ours) {
+      dataset.push({ text: r.body, y: r.label === 'spam' ? 1 : 0 });
+    }
+    const { model } = trainSmsModel(dataset, { seed: 42 });
+    fs.mkdirSync(path.dirname(smsAi.SMS_MODEL_PATH), { recursive: true });
+    fs.writeFileSync(smsAi.SMS_MODEL_PATH, JSON.stringify(model, null, 2));
+    res.json({
+      ok: true,
+      metrics: model.metrics,
+      ownLabels: ours.length
+    });
   });
 
   app.use('/api/v1/admin', router);

@@ -11,6 +11,9 @@ reports, call frequency, device reach, line type).
 | POST | `/api/v1/calls` | `{device, token, calls: [...]}` → ingest call records |
 | POST | `/api/v1/report` | `{number, category, token}` → community spam report |
 | POST | `/api/v1/honeypot/call` | honeypot webhook (JSON or Twilio form) |
+| POST | `/api/v1/sms/check` | `{sender, text, token}` → AI SMS spam score |
+| POST | `/api/v1/sms/report` | label an SMS as spam for training |
+| POST | `/api/v1/sms` | ingest observed SMS from devices |
 | GET | `/api/v1/top-blocked?token=` | `{numbers: [{number, score}]}` for the app's local blocklist |
 | GET | `/api/v1/model?token=` | AI model metadata + metrics |
 | GET | `/api/v1/admin/*?token=` | admin stats/numbers/block/allow/retrain |
@@ -87,3 +90,16 @@ robocall scrapers find them to start baiting callers.
 Set `ADMIN_TOKEN` in `.env`, then open `https://your-domain/admin` and
 paste the token. The dashboard shows platform stats, top spam numbers,
 and block/allow controls, with one-click AI retraining.
+
+## SMS AI classifier
+
+A multinomial Naive Bayes model trained on the public UCI SMS Spam
+Collection (`datasets/SMSSpamCollection.txt`) plus the messages your
+users report via `/api/v1/sms/report`.
+
+```bash
+node train-sms.js       # train + save data/sms-model.json
+```
+
+`POST /api/v1/sms/check` combines the text score with the sender's call
+reputation. Held-out accuracy on the UCI dataset: ~99%.

@@ -20,7 +20,8 @@ collect.
   score, business name — cached locally within the ~5s screening window
 - **VoIP auto-block** — reject numbers on VoIP trunks (toggleable)
 - **Every-call log** (SQLite) with lookup results; SMS observation with
-  spam flags and alerts
+  spam flags and alerts, including a server-side **AI SMS classifier**
+  (Naive Bayes trained on the public UCI dataset + your reports)
 - **Community reporting** — one tap on any call/SMS feeds the reputation DB
 - Blocked-call notifications; background uploads via JobScheduler
   (survive reboots)
@@ -43,6 +44,9 @@ collect.
   - `train.js --synthetic` — demo training on generated data
   - served via `/api/v1/lookup` (`aiScore`, `aiSpam`) and `/api/v1/model`
   - heuristic scorer always provides a safety floor under the AI
+- **AI SMS classifier** (multinomial Naive Bayes, pure JS, zero
+  dependencies): trained on the public UCI SMS Spam Collection plus the
+  SMS messages your users report; served via `/api/v1/sms/check`
 - `GET /api/v1/top-blocked` — feed the app syncs for instant local blocking
 - Optional cached external carrier lookups (e.g. numverify) — the server
   works fully without them
@@ -100,6 +104,9 @@ server/               Node.js backend
 | GET | `/api/v1/top-blocked?token=` | `{numbers: [{number, score}]}` for the app's local blocklist |
 | GET | `/api/v1/model?token=` | trained model metadata + metrics |
 | POST | `/api/v1/honeypot/call?token=` | honeypot webhook: `{did, from}` or Twilio `From`/`To` |
+| POST | `/api/v1/sms/check` | `{sender, text, token}` → `{score, spam, textScore, senderScore}` |
+| POST | `/api/v1/sms/report` | label an SMS as spam for model training |
+| POST | `/api/v1/sms` | ingest observed SMS from devices |
 | GET | `/api/v1/admin/*?token=` | admin stats/numbers/block/allow/retrain (needs `ADMIN_TOKEN`) |
 | GET | `/health` | liveness |
 
@@ -145,12 +152,13 @@ Without `keystore.properties`, release builds fall back to debug signing
 cd server
 node train.js --synthetic              # demo on generated data
 node train.js --from-db                # train on your collected data
+node train-sms.js                      # train the SMS classifier
 node --test                            # run the test suite
 ```
 
-The model is retrained whenever enough labeled data accumulates (labels:
-community reports vs. allowlist/contact calls). No third-party data is
-needed at any point.
+The models retrain whenever enough labeled data accumulates (labels:
+community reports vs. allowlist/contact calls; reported SMS vs. normal).
+No third-party data is needed at any point.
 
 ## Security & privacy
 

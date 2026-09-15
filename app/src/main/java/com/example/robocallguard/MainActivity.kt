@@ -225,6 +225,8 @@ class MainActivity : Activity() {
             { settings.remoteBlocklistEnabled }, { settings.remoteBlocklistEnabled = it })
         addToggle(rulesInner, "SMS spam alerts",
             { settings.smsAlertsEnabled }, { settings.smsAlertsEnabled = it })
+        addToggle(rulesInner, "AI SMS check (server)",
+            { settings.smsServerCheckEnabled }, { settings.smsServerCheckEnabled = it })
 
         rulesInner.addView(label("Your NPA-NXX (e.g. 212555) — flags neighbor spoofing"))
         val npaInput = EditText(this).apply {
@@ -463,7 +465,7 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this)
             .setTitle(s.sender)
             .setItems(
-                arrayOf("Report as spam", "Block this number")
+                arrayOf("Report as spam", "Block this number", "Report SMS text (trains AI)")
             ) { _, which ->
                 when (which) {
                     0 -> reportSpam(s.sender)
@@ -472,9 +474,28 @@ class MainActivity : Activity() {
                         rebuildRules()
                         refreshLog()
                     }
+                    2 -> reportSms(s.sender, s.body)
                 }
             }
             .show()
+    }
+
+    private fun reportSms(sender: String, body: String) {
+        if (settings.baseUrl.isBlank()) {
+            Toast.makeText(this, "Set the backend URL first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        Thread {
+            val ok = LookupClient(settings.baseUrl, settings.token)
+                .reportSms(sender, body)
+            runOnUiThread {
+                Toast.makeText(
+                    this,
+                    if (ok) "Reported — feeds the AI model" else "Report failed (check server)",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }.start()
     }
 
     private fun reportSpam(number: String) {

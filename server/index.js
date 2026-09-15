@@ -17,6 +17,7 @@ const db = require('./db');
 const { computeScore } = require('./scoring');
 const providers = require('./providers');
 const ai = require('./model');
+const smsAi = require('./smsModel');
 
 const AUTH_TOKEN = process.env.AUTH_TOKEN || '';
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -278,6 +279,87 @@ app.get('/api/v1/top-blocked', (req, res) => {
     .prepare('SELECT number, score FROM numbers WHERE score >= ? ORDER BY score DESC, updated_at DESC LIMIT 500')
     .all(TOP_THRESHOLD);
   res.json({ numbers: rows });
+});
+
+// ---- SMS AI check ------------------------------------------------------------
+// Text score from our NB model (UCI dataset + user-reported labels) combined
+// with the sender's call reputation.
+app.post('/api/v1/sms/check', (req, res) => {
+  if (!authed(req)) return fail(res, 'unauthorized');
+  const text = String(req.body.text || '').slice(0, 2000);
+  const sender = digitsOf(req.body.sender);
+
+  const t = smsAi.predict(text);
+  const row = sender.length >= 7
+    ? db.prepare('SELECT * FROM numbers WHERE number = ?').get(sender)
+    : null;
+  const senderScore = row ? row.score : 0;
+  const score = t ? Math.max(t.score, senderScore * 0.9) : senderScore;
+
+  res.json({
+    score: Math.round(score * 1000) / 1000,
+    spam: score >= 0.5,
+    textScore: t ? t.score : null,
+    senderScore: Math.round(senderScore * 1000) / 1000,
+    modelTrainedAt: t ? t.trainedAt : null
+  });
+});
+
+// Label an SMS as spam — feeds future model training + sender reputation.
+app.post('/api/v1/sms/report', (req, res) => {
+  if (!authed(req)) return fail(res, 'unauthorized');
+  const sender = digitsOf(req.body.sender);
+  const text = String(req.body.text || '').slice(0, 2000);
+  if (!text && sender.length < 7) return fail(res, 'need sender or text', 400);
+
+  db.prepare('INSERT INTO sms_labels (sender, body, label, ts) VALUES (?, ?, ?, ?)')
+    .run(sender || null, text, 'spam', Date.now());
+
+  if (sender.length >= 7) {
+    const now = Date.now();
+    db.prepare('INSERT INTO reports (number, category, ts) VALUES (?, ?, ?)')
+      .run(sender, 'sms-spam', now);
+    const existing = db.prepare('SELECT * FROM numbers WHERE number = ?').get(sender);
+    if (existing) {
+      const merged = { ...existing, reports_total: existing.reports_total + 1 };
+      db.prepare('UPDATE numbers SET reports_total = reports_total + 1, score = ?, updated_at = ? WHERE number = ?')
+        .run(computeScore(merged), now, sender);
+    } else {
+      db.prepare(
+        `INSERT INTO numbers (number, calls_total, calls_last24h, last_seen, distinct_devices, reports_total, honeypot_hits, score, updated_at)
+         VALUES (?, 0, 0, ?, 0, 1, 0, ?, ?)`
+      ).run(sender, now, computeScore({ reports_total: 1 }), now);
+    }
+  }
+  res.json({ ok: true });
+});
+
+// Ingest observed SMS (flag + AI score) from devices.
+app.post('/api/v1/sms', (req, res) => {
+  if (!authed(req)) return fail(res, 'unauthorized');
+  const items = Array.isArray(req.body.sms) ? req.body.sms : [];
+  const device = String(req.body.device || 'unknown').slice(0, 64);
+  const now = Date.now();
+  const insert = db.prepare(
+    'INSERT INTO sms_ingest (device, sender, body, ts, flag, ai_score, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  );
+  let stored = 0;
+  const tx = db.transaction(() => {
+    for (const s of items.slice(0, 200)) {
+      insert.run(
+        device,
+        digitsOf(s.sender) || null,
+        String(s.body || '').slice(0, 2000),
+        Number(s.ts) || now,
+        s.flag,
+        s.aiScore,
+        now
+      );
+      stored++;
+    }
+  });
+  tx();
+  res.json({ ok: true, stored });
 });
 
 app.get('/health', (req, res) => res.json({ ok: true }));

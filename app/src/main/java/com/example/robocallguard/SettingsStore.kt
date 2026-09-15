@@ -60,4 +60,8 @@ class SettingsStore(context: Context) {
     var smsAlertsEnabled: Boolean
         get() = prefs.getBoolean("smsAlertsEnabled", true)
         set(v) = prefs.edit().putBoolean("smsAlertsEnabled", v).apply()
+
+    var smsServerCheckEnabled: Boolean
+        get() = prefs.getBoolean("smsServerCheckEnabled", true)
+        set(v) = prefs.edit().putBoolean("smsServerCheckEnabled", v).apply()
 }
