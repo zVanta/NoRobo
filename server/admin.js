@@ -208,8 +208,8 @@ async function load() {
         '<td>' + n.number + '</td><td>' + n.score + '</td><td>' + n.reports_total +
         '</td><td>' + n.calls_total + '</td><td>' + n.calls_last24h + '</td><td>' +
         (n.honeypot_hits || 0) + '</td><td>' + (n.line_type || '') + '</td>' +
-        '<td><button onclick="act(\\'' + n.number + '\\', \\'block\\')">Block</button>' +
-        '<button onclick="act(\\'' + n.number + '\\', \\'allow\\')">Allow</button></td>';
+        '<td><button onclick="blockNum(' + n.number + ')">Block</button>' +
+        '<button onclick="allowNum(' + n.number + ')">Allow</button></td>';
       rows.appendChild(tr);
     }
   } catch (e) { document.getElementById('err').textContent = 'Error: ' + e.message; }
@@ -223,6 +223,9 @@ async function act(number, action) {
   });
   load();
 }
+
+function blockNum(number) { act(number, 'block'); }
+function allowNum(number) { act(number, 'allow'); }
 
 async function retrain() {
   document.getElementById('err').textContent = 'Retraining…';

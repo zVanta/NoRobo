@@ -28,6 +28,7 @@ const DAY_MS = 24 * 3600 * 1000;
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: false })); // Twilio-style webhooks
+app.use('/api/v1', rateLimit);
 
 function authed(req) {
   const tok =
@@ -43,6 +44,32 @@ function fail(res, msg, code = 401) {
 
 function digitsOf(value) {
   return String(value || '').replace(/\D/g, '').slice(-10);
+}
+
+function withTimeout(promise, ms, fallback) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => setTimeout(() => resolve(fallback), ms))
+  ]);
+}
+
+// Simple in-memory per-IP rate limit (default 120 req/min, 0 disables).
+const rateHits = new Map();
+function rateLimit(req, res, next) {
+  const maxPerMin = parseInt(process.env.RATE_LIMIT_PER_MIN || '120', 10);
+  if (maxPerMin <= 0) return next();
+  const ip = req.ip || 'unknown';
+  const now = Date.now();
+  const arr = (rateHits.get(ip) || []).filter((t) => now - t < 60_000);
+  arr.push(now);
+  rateHits.set(ip, arr);
+  if (rateHits.size > 5000) {
+    for (const [k, v] of rateHits) {
+      if (v.length === 0 || now - v[v.length - 1] > 60_000) rateHits.delete(k);
+    }
+  }
+  if (arr.length > maxPerMin) return res.status(429).json({ error: 'rate limited' });
+  next();
 }
 
 // ---- Caller lookup (cached; providers optional) --------------------------
@@ -64,7 +91,13 @@ app.post('/api/v1/lookup', async (req, res) => {
     lineType = cached.line_type;
     business = cached.business;
   } else {
-    const p = await providers.lookup(digits);
+    const p = await withTimeout(providers.lookup(digits), 2800, {
+      any: false,
+      carrier: null,
+      lineType: null,
+      business: null,
+      timedOut: true
+    });
     if (p.any) {
       carrier = p.carrier;
       lineType = p.lineType;
@@ -363,6 +396,24 @@ app.post('/api/v1/sms', (req, res) => {
 });
 
 app.get('/health', (req, res) => res.json({ ok: true }));
+
+// ---- Data retention (runs hourly) -------------------------------------------
+function pruneOldData() {
+  try {
+    const days = parseInt(process.env.RETENTION_DAYS || '90', 10);
+    const cutoff = Date.now() - days * DAY_MS;
+    db.prepare('DELETE FROM calls WHERE ts < ?').run(cutoff);
+    db.prepare('DELETE FROM honeypot_calls WHERE ts < ?').run(cutoff);
+    db.prepare('DELETE FROM sms_ingest WHERE ts < ?').run(cutoff);
+    db.prepare('DELETE FROM sms_labels WHERE ts < ?').run(cutoff);
+    db.prepare('DELETE FROM lookup_cache WHERE checked_at < ?')
+      .run(Date.now() - 30 * DAY_MS);
+  } catch (e) {
+    console.error('prune failed', e);
+  }
+}
+pruneOldData();
+setInterval(pruneOldData, 3600 * 1000).unref();
 
 // ---- Admin API + dashboard (see admin.js) -----------------------------------
 require('./admin').mount(app);

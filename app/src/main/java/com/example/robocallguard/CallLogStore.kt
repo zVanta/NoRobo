@@ -109,7 +109,9 @@ class CallLogStore(context: Context) :
             put("business", lookup?.business)
             put("uploaded", 0)
         }
-        writableDatabase.insert("calls", null, cv)
+        val db = writableDatabase
+        db.insert("calls", null, cv)
+        prune(db)
     }
 
     fun cached(number: String): LookupResult? {
@@ -240,7 +242,23 @@ class CallLogStore(context: Context) :
             put("ts", System.currentTimeMillis())
             put("flag", flag)
         }
-        writableDatabase.insert("sms", null, cv)
+        val db = writableDatabase
+        db.insert("sms", null, cv)
+        prune(db)
+    }
+
+    /** Bound local storage: keep the newest 2000 calls / 500 SMS. */
+    private fun prune(db: SQLiteDatabase) {
+        try {
+            db.execSQL(
+                "DELETE FROM calls WHERE id NOT IN (SELECT id FROM calls ORDER BY id DESC LIMIT 2000)"
+            )
+            db.execSQL(
+                "DELETE FROM sms WHERE id NOT IN (SELECT id FROM sms ORDER BY id DESC LIMIT 500)"
+            )
+        } catch (_: Exception) {
+            // Best-effort pruning — never break call screening for storage.
+        }
     }
 
     fun recentSms(limit: Int): List<SmsRecord> {

@@ -123,6 +123,8 @@ class MainActivity : Activity() {
         showTab(rulesScroll)
         ensurePermissions()
         CallDataSyncService.schedulePeriodic(this)
+        // Preload contacts so the first screened call never blocks on a DB query.
+        Thread { ContactsHelper(applicationContext).refresh() }.start()
     }
 
     override fun onResume() {

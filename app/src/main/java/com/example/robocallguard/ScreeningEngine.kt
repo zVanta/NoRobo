@@ -122,9 +122,12 @@ class ScreeningEngine(context: Context) {
                 builder.setDisallowCall(true).setRejectCall(false)
             }
             Action.SILENCE -> {
-                builder.setDisallowCall(false).setRejectCall(false)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    builder.setDisallowCall(false).setRejectCall(false)
                     builder.setSilenceCall(true)
+                } else {
+                    // No silence support before API 31 — degrade to voicemail.
+                    builder.setDisallowCall(true).setRejectCall(false)
                 }
             }
         }

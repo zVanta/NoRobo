@@ -7,6 +7,7 @@ import android.provider.ContactsContract
 class ContactsHelper(private val context: Context) {
 
     private var contactSet: Set<String>? = null
+    private var lastRefresh: Long = 0
 
     fun refresh() {
         val set = mutableSetOf<String>()
@@ -26,15 +27,14 @@ class ContactsHelper(private val context: Context) {
             // No permission or provider issue — treat as having no contacts.
         }
         contactSet = set
+        lastRefresh = System.currentTimeMillis()
     }
 
     fun isInContacts(number: String): Boolean {
         val digits = number.filter { it.isDigit() }.takeLast(10)
         if (digits.length < 10) return false
-        val set = contactSet ?: run {
-            refresh()
-            contactSet ?: emptySet()
-        }
-        return digits in set
+        val stale = System.currentTimeMillis() - lastRefresh > 30 * 60 * 1000L
+        if (contactSet == null || stale) refresh()
+        return digits in (contactSet ?: emptySet())
     }
 }

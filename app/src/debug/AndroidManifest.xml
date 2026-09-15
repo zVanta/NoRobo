@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: allow cleartext HTTP so you can test against your
+     server's plain IP (http://<ip>:3000) before HTTPS/domain is set up.
+     Release builds stay HTTPS-only. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:usesCleartextTraffic="true" />
+</manifest>

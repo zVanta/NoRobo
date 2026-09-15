@@ -47,4 +47,4 @@ jobs:
 
       - name: Run AI model tests
         working-directory: server
-        run: node --test
+        run: npm test --if-present || node --test

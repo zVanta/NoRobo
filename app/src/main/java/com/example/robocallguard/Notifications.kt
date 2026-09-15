@@ -33,7 +33,8 @@ object Notifications {
             .setContentText("$number — $reason")
             .setAutoCancel(true)
             .build()
-        context.getSystemService(NotificationManager::class.java).notify(1001, notification)
+        context.getSystemService(NotificationManager::class.java)
+            .notify(1001 + (System.currentTimeMillis() % 10000).toInt(), notification)
     }
 
     fun smsAlert(context: Context, sender: String, flag: String) {
@@ -49,6 +50,7 @@ object Notifications {
             .setContentText("$sender — $flag")
             .setAutoCancel(true)
             .build()
-        context.getSystemService(NotificationManager::class.java).notify(1002, notification)
+        context.getSystemService(NotificationManager::class.java)
+            .notify(20001 + (System.currentTimeMillis() % 10000).toInt(), notification)
     }
 }
