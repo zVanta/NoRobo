@@ -8,17 +8,17 @@ object CallRules {
 
     // Numbers that always ring through (family, key vendors, etc.).
     // Use E.164 ("+15551234567") or any digits; last-10 comparison is used.
-    private val allowlist = setOf(
+    private val allowlist = setOf<String>(
         // "+15551234567",
     )
 
     // Exact numbers to always reject.
-    private val blocklist = setOf(
+    private val blocklist = setOf<String>(
         // "+18005550123",
     )
 
     // Digit prefixes to reject (area codes / country codes / toll-free).
-    private val blockedPrefixes = listOf(
+    private val blockedPrefixes = listOf<String>(
         // "1800", "1888", "1877", "1866", "1855", "1844", "1833", // US toll-free
     )
 
