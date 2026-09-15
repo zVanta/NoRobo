@@ -14,8 +14,8 @@ android {
         applicationId = "com.example.robocallguard"
         minSdk = 29
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 3
+        versionName = "0.3.0"
     }
 
     signingConfigs {
