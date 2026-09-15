@@ -1,89 +1,163 @@
-# RobocallGuard — Android Call-Screening Starter
+# RobocallGuard — Independent Spam & Robocall Protection Platform
 
-A minimal Android app that screens incoming calls and blocks robocalls/spam
-using Android's `CallScreeningService`.
+An Android app + self-hosted backend that screens calls and SMS, blocks
+robocalls/spam, and builds **its own reputation database** — no reliance on
+paid datasets. Includes an AI scoring model trained exclusively on data you
+collect.
 
-## What it does
-- Requests the "Caller ID & spam" role (Android 10+, API 29+).
-- Runs in the background: the system binds `ScamScreeningService` for every
-  call routed through the telecom stack (native dialer and any app that
-  dials through the system). No app UI needs to be open.
-- Asks for Android runtime permissions: contacts (auto-allowlist) and
-  notifications (blocked-call alerts).
-- Rule engine: allowlist, blocklist, prefixes, regex — each with a per-list
-  response (reject / voicemail / silence).
-- Optional server lookup for unknown numbers (carrier, line type/VoIP,
-  spam score, business name) with local caching; VoIP numbers can be
-  auto-blocked.
-- Logs every screened call locally; uploads pending records to your backend
-  in the background via JobScheduler (works with the app closed, survives
-  reboots).
+## Features
 
-## Permissions
-- `INTERNET` — server lookups/upload.
-- `READ_CONTACTS` — auto-allow contacts (toggleable).
-- `POST_NOTIFICATIONS` (Android 13+) — blocked-call notifications.
-- `RECEIVE_BOOT_COMPLETED` — reschedule the background upload job.
+**Android app** (`app/`)
+- Screens every call routed through the phone system (native dialer + any
+  app dialing through telecom) via `CallScreeningService` — runs in the
+  background with no UI open
+- Rule engine with per-list responses: **reject / voicemail / silence**
+  (allowlist, blocklist, prefixes, regex)
+- Auto-allow contacts · allowlist-only mode
+- **Neighbor-spoofing detection** (callers sharing your NPA-NXX)
+- **Server-synced remote blocklist** — blocks known spam instantly, offline
+- **Server lookup** for unknown numbers: carrier, line type (VoIP), spam
+  score, business name — cached locally within the ~5s screening window
+- **VoIP auto-block** — reject numbers on VoIP trunks (toggleable)
+- **Every-call log** (SQLite) with lookup results; SMS observation with
+  spam flags and alerts
+- **Community reporting** — one tap on any call/SMS feeds the reputation DB
+- Blocked-call notifications; background uploads via JobScheduler
+  (survive reboots)
+- In-app settings for everything; server URL + token set at runtime and
+  never stored in the repo
 
-## Prerequisites
-- JDK 17
-- Android SDK (Platform 34 + build-tools 34.x)
-- Gradle 8.5+ (or generate the wrapper, below)
+**Backend** (`server/`) — Node.js + SQLite
+- Ingestion of call records from all devices (per-device analytics)
+- Community spam reports
+- **Independent reputation scoring**: reports + call frequency + device
+  reach + line type + aggressive patterns
+- **AI scoring model** (logistic regression, pure JS, zero dependencies):
+  - `train.js --from-db` — trains on your collected data
+    (reports = spam, allowlist/contact calls = legitimate)
+  - `train.js --synthetic` — demo training on generated data
+  - served via `/api/v1/lookup` (`aiScore`, `aiSpam`) and `/api/v1/model`
+  - heuristic scorer always provides a safety floor under the AI
+- `GET /api/v1/top-blocked` — feed the app syncs for instant local blocking
+- Optional cached external carrier lookups (e.g. numverify) — the server
+  works fully without them
+- Deploy files: systemd unit, nginx config, `.env.example`
 
-## Build (VS Code)
-1. Create `local.properties` in the project root with:
-      sdk.dir=/path/to/Android/Sdk
-   (or set ANDROID_HOME / ANDROID_SDK_ROOT in your environment)
-2. Generate the Gradle wrapper once:
-      gradle wrapper --gradle-version 8.7
-3. Build the debug APK:
-      ./gradlew assembleDebug
-   Output: app/build/outputs/apk/debug/app-debug.apk
+## Architecture
 
-## Install on a device
-    adb install app/build/outputs/apk/debug/app-debug.apk
-Then open the app and tap "Grant Call Screening Role".
+```mermaid
+flowchart LR
+    A[Incoming call] --> B[ScamScreeningService]
+    B --> C{Local rules}
+    C -->|match| D[Reject / Voicemail / Silence]
+    C -->|unknown| E{Remote blocklist cache}
+    E -->|hit| D
+    E -->|miss| F[Server lookup ~2.5s]
+    F --> G[AI model + heuristic score]
+    G -->|spam| D
+    G -->|clean| H[Allow through]
+    B --> I[(Local call log)]
+    I -->|JobScheduler| J[Backend API]
+    J --> K[(SQLite: calls, reports, numbers)]
+    K --> L[train.js]
+    L --> M[model.json]
+    M --> G
+    K --> N[top-blocked feed]
+    N -->|nightly sync| E
+    O[User report] --> J
+```
 
-## Backend API contract (optional, self-hosted)
-The app talks only to your server; API keys for lookup providers live there.
+## Repository layout
 
-    POST /api/v1/lookup
-      body: {"number": "+15551234567", "token": "<shared>"}
-      200:  {"carrier": "...", "lineType": "mobile|landline|voip|...",
-             "spamScore": 0.0-1.0, "business": "..."}
+```
+app/                  Android app (Kotlin, minSdk 29)
+  src/main/java/com/example/robocallguard/
+server/               Node.js backend
+  index.js            API + integration
+  train.js            model training CLI
+  features.js         AI feature extraction
+  labeling.js         ground-truth dataset builder
+  model.js            inference
+  scoring.js          heuristic scorer
+  db.js providers.js  storage + optional lookups
+  test/               node --test suite
+  deploy/             systemd + nginx
+.github/workflows/    CI: APK build + server tests
+```
 
-    POST /api/v1/calls
-      body: {"token": "<shared>", "calls": [
-              {"number": "...", "timestamp": 123, "action": "REJECT",
-               "reason": "...", "carrier": "...", "lineType": "...",
-               "spamScore": 0.9, "business": "..."}]}
+## API contract
 
-A reference Node.js implementation lives in `server/`.
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/v1/lookup` | `{number, token}` → `{spamScore, aiScore, aiSpam, carrier, lineType, business, ...}` |
+| POST | `/api/v1/calls` | `{device, token, calls: [...]}` — ingest call records |
+| POST | `/api/v1/report` | `{number, category, token}` — community spam report |
+| GET | `/api/v1/top-blocked?token=` | `{numbers: [{number, score}]}` for the app's local blocklist |
+| GET | `/api/v1/model?token=` | trained model metadata + metrics |
+| GET | `/health` | liveness |
 
-## Customize the rules
-Use the in-app "Rules & Status" screen (persisted locally):
-- allowlist       -> numbers that always ring through
-- blocklist       -> exact numbers to always reject
-- blockedPrefixes -> area/country-code prefixes to reject (e.g. "1800")
-- blockedPatterns -> regex rules against the raw digits
-- Each list has its own response: REJECT, VOICEMAIL, or SILENCE.
-- Toggles: allowlist-only mode, VoIP auto-block, contacts, notifications,
-  server lookup.
+## Permissions (app)
 
-## Important limitations (read this)
-- Only intercepts calls through the NATIVE phone dialer. It will NOT see calls
-  arriving inside VoIP softphone apps (e.g. magicJack, WhatsApp, Google Voice).
-- Number-based only: it cannot listen to or analyze call audio, so it cannot
-  detect a scam by "script." Spoofed numbers that rotate each call can slip through.
-- Only ONE call-screening app can be active at a time; enabling this disables
-  other screeners (Hiya, Truecaller, etc.) for the role.
-- Emergency calls are not routed through screening.
-- For Google Play, call-screening apps must request ROLE_CALL_SCREENING and
-  disclose the capability; this starter is for personal/dev use.
+- `INTERNET` — server lookups/upload
+- `READ_CONTACTS` — auto-allow contacts (toggleable)
+- `POST_NOTIFICATIONS` (Android 13+) — blocked-call/SMS alerts
+- `RECEIVE_SMS` — observe + flag spam SMS
+- `RECEIVE_BOOT_COMPLETED` — reschedule background sync
 
-## Suggested next steps (good DeepSeek prompts)
-- Auto-allowlist from your contacts (needs READ_CONTACTS).
-- "Allowlist-only" mode: block all unknown numbers and send to voicemail.
-- Crowd-sourced spam database lookup (Hiya/Nomorobo API) inside onScreenCall.
-- Local call log + reporting UI.
-- Regex rules for your specific spammer prefixes.
+Plus the **"Caller ID & spam" role** (required for screening).
+
+## Build
+
+See `server/README.md` for backend deployment.
+
+1. Create `local.properties` with `sdk.dir=/path/to/Android/Sdk`
+2. `gradle wrapper --gradle-version 8.7` (once)
+3. `./gradlew assembleDebug` → `app/build/outputs/apk/debug/app-debug.apk`
+4. `adb install app/build/outputs/apk/debug/app-debug.apk`
+5. Open the app: grant the screening role, permissions, set the server
+   URL + token
+
+CI (GitHub Actions) builds the APK on every push and runs the server test
+suite.
+
+## Training the AI model
+
+```bash
+cd server
+node train.js --synthetic              # demo on generated data
+node train.js --from-db                # train on your collected data
+node --test                            # run the test suite
+```
+
+The model is retrained whenever enough labeled data accumulates (labels:
+community reports vs. allowlist/contact calls). No third-party data is
+needed at any point.
+
+## Security & privacy
+
+- Private repo; server IP, keys, and tokens are **never** committed
+  (gitignored `.env`, runtime app settings)
+- All API traffic should run over HTTPS (nginx + certbot config provided)
+- Shared-token auth on every endpoint
+- Call data stays in your SQLite DB on your server
+
+## Honest limitations
+
+- Screens only calls routed through the telecom stack; in-app VoIP calls
+  (WhatsApp, Google Voice, …) are invisible to every screening app
+- No audio access via `CallScreeningService` — script detection requires
+  call takeover (RoboKiller-style), a later, opt-in, legally-sensitive
+  feature
+- STIR/SHAKEN attestation is carrier-only by regulation
+- Non-default SMS apps can flag but not silently drop SMS
+- Only one call-screening app can hold the role at a time
+
+## Roadmap
+
+- [x] Screening engine, rules UI, call log, notifications
+- [x] Independent reputation backend + community reports
+- [x] AI scoring model + training pipeline (tested in CI)
+- [ ] Honeypot collector (bait robocallers) + admin dashboard
+- [ ] Caller-ID overlay (dialer app) and branded business data
+- [ ] Opt-in audio screening (with legal review)
+- [ ] Release signing + distribution

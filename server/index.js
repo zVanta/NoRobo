@@ -16,6 +16,7 @@ const express = require('express');
 const db = require('./db');
 const { computeScore } = require('./scoring');
 const providers = require('./providers');
+const ai = require('./model');
 
 const AUTH_TOKEN = process.env.AUTH_TOKEN || '';
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -85,7 +86,28 @@ app.post('/api/v1/lookup', async (req, res) => {
 
   const ownScore = row ? computeScore(row) : 0;
   const isVoip = (lineType || '').toLowerCase().includes('voip');
-  const spamScore = Math.max(ownScore, isVoip ? 0.55 : 0, row ? row.score : 0);
+
+  const callsLast7d = row
+    ? db.prepare('SELECT COUNT(*) AS c FROM calls WHERE number = ? AND ts > ?')
+        .get(digits, Date.now() - 7 * DAY_MS).c
+    : 0;
+
+  // AI model score when a trained model exists; heuristic fallback otherwise.
+  const aiResult = ai.predict({
+    reports_total: row ? row.reports_total : 0,
+    calls_total: row ? row.calls_total : 0,
+    calls_last24h: row ? row.calls_last24h : 0,
+    calls_last7d: callsLast7d,
+    distinct_devices: row ? row.distinct_devices : 0,
+    line_type: lineType
+  });
+
+  // AI model raises the score when a trained model exists; the heuristic
+  // scorer always provides a safety floor (VoIP, reports, volume).
+  const heuristicFloor = Math.max(ownScore, isVoip ? 0.55 : 0, row ? row.score : 0);
+  const spamScore = aiResult
+    ? Math.max(aiResult.score, heuristicFloor)
+    : heuristicFloor;
 
   res.json({
     number: digits,
@@ -93,11 +115,30 @@ app.post('/api/v1/lookup', async (req, res) => {
     lineType,
     business,
     spamScore,
+    aiScore: aiResult ? aiResult.score : null,
+    aiSpam: aiResult ? aiResult.spam : null,
+    aiTrainedAt: aiResult ? aiResult.trainedAt : null,
     reports: row ? row.reports_total : 0,
     callsTotal: row ? row.calls_total : 0,
     callsLast24h: row ? row.calls_last24h : 0,
     distinctDevices: row ? row.distinct_devices : 0,
     source: row || cached || (carrier ? 1 : 0) ? 'server' : 'none'
+  });
+});
+
+// ---- Model status ----------------------------------------------------------
+app.get('/api/v1/model', (req, res) => {
+  if (!authed(req)) return fail(res, 'unauthorized');
+  const m = ai.loadModel();
+  if (!m) return res.json({ model: null });
+  res.json({
+    model: {
+      algorithm: m.algorithm,
+      trainedAt: m.trainedAt,
+      threshold: m.threshold,
+      metrics: m.metrics,
+      featureNames: m.featureNames
+    }
   });
 });
 

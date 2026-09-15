@@ -48,3 +48,21 @@ Set the same `AUTH_TOKEN` in the app's Server screen along with the URL
 ## Provider model (optional)
 The server scores independently. Optional carrier lookups plug into
 `providers.js` via env keys (e.g. `NUMVERIFY_KEY`) and are cached for 7 days.
+
+## AI scoring model
+
+A logistic-regression classifier trained only on your collected data.
+Ground truth labels:
+- **spam** = numbers with >= 1 community report or >= 2 blocklist rejections
+- **legitimate** = numbers reached via allowlist/contacts with zero reports
+
+```bash
+cd /opt/robocallguard
+node train.js --synthetic          # demo on generated data
+node train.js --from-db            # train on live DB -> data/model.json
+node --test                        # run the test suite (no deps needed)
+```
+
+The lookup API returns `aiScore`/`aiSpam` and `/api/v1/model` exposes
+metrics. The heuristic scorer always provides a safety floor beneath the
+model score. Retrain periodically (e.g. cron) as data accumulates.
