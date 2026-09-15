@@ -1,0 +1,44 @@
+package com.example.robocallguard
+
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+
+/**
+ * Calls the self-hosted backend:
+ *   POST {base}/api/v1/lookup  {"number": "+1...", "token": "..."}
+ * Expects JSON: {"carrier": ..., "lineType": ..., "spamScore": ..., "business": ...}
+ * All keys and provider config live server-side.
+ */
+class LookupClient(private val baseUrl: String, private val token: String) {
+
+    fun lookup(number: String): LookupResult? {
+        val url = URL("${baseUrl.trimEnd('/')}/api/v1/lookup")
+        val conn = url.openConnection() as HttpURLConnection
+        try {
+            conn.requestMethod = "POST"
+            conn.connectTimeout = 2200
+            conn.readTimeout = 2200
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.doOutput = true
+            val body = JSONObject()
+                .put("number", number)
+                .put("token", token)
+                .toString()
+            conn.outputStream.use { it.write(body.toByteArray()) }
+            if (conn.responseCode !in 200..299) return null
+            val text = conn.inputStream.bufferedReader().use { it.readText() }
+            val json = JSONObject(text)
+            return LookupResult(
+                carrier = json.optString("carrier").takeIf { it.isNotBlank() },
+                lineType = json.optString("lineType").takeIf { it.isNotBlank() },
+                spamScore = if (json.has("spamScore")) json.optDouble("spamScore") else null,
+                business = json.optString("business").takeIf { it.isNotBlank() }
+            )
+        } catch (_: Exception) {
+            return null
+        } finally {
+            conn.disconnect()
+        }
+    }
+}

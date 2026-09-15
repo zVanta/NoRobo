@@ -5,31 +5,33 @@ import android.telecom.CallScreeningService
 import android.util.Log
 
 /**
- * Screens every call to the native dialer. The user must grant this app the
- * "Caller ID & spam" role (see MainActivity) before onScreenCall fires.
+ * Screens every call routed through the telecom stack — the native dialer and
+ * any app that places calls through the system. The system binds this service
+ * automatically, so it runs in the background with no app UI open.
+ *
+ * The user must grant this app the "Caller ID & spam" role before
+ * onScreenCall fires. In-app VoIP calls (WhatsApp, Google Voice, etc.) never
+ * reach the telecom stack and cannot be seen by ANY screening app.
  */
 class ScamScreeningService : CallScreeningService() {
 
+    private val engine by lazy { ScreeningEngine(this) }
+
     override fun onScreenCall(details: Call.Details) {
-        val number = details.handle?.schemeSpecificPart
-        val verdict = CallRules.verdict(number)
-        Log.i(TAG, "Screening $number -> $verdict")
-
-        val builder = CallResponse.Builder()
-        when (verdict) {
-            CallRules.Verdict.ALLOW ->
-                builder.setDisallowCall(false).setRejectCall(false)
-
-            CallRules.Verdict.BLOCK ->
-                builder.setDisallowCall(true).setRejectCall(true)
-
-            // Default posture: let unknown callers through.
-            // For "allowlist-only" mode, change this to reject unknown numbers.
-            CallRules.Verdict.UNKNOWN ->
-                builder.setDisallowCall(false).setRejectCall(false)
+        try {
+            val verdict = engine.screen(details)
+            Log.i(TAG, "Screening ${details.handle} -> ${verdict.action} (${verdict.reason})")
+            respondToCall(details, engine.responseFor(verdict))
+        } catch (e: Exception) {
+            Log.e(TAG, "Screening failed", e)
+            respondToCall(
+                details,
+                CallResponse.Builder()
+                    .setDisallowCall(false)
+                    .setRejectCall(false)
+                    .build()
+            )
         }
-
-        respondToCall(details, builder.build())
     }
 
     companion object { private const val TAG = "RobocallGuard" }

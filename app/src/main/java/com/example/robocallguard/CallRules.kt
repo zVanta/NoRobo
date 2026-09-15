@@ -1,44 +1,35 @@
 package com.example.robocallguard
 
 /**
- * Extensible rule engine. Returns a verdict for each incoming number.
- * Tune these lists to your situation (edit and rebuild).
+ * Action applied to an incoming call.
+ * ALLOW:      ring normally
+ * REJECT:     end the call immediately
+ * VOICEMAIL:  send to voicemail without ringing
+ * SILENCE:    ring silently (API 31+)
  */
-object CallRules {
+enum class Action { ALLOW, REJECT, VOICEMAIL, SILENCE }
 
-    // Numbers that always ring through (family, key vendors, etc.).
-    // Use E.164 ("+15551234567") or any digits; last-10 comparison is used.
-    private val allowlist = setOf<String>(
-        // "+15551234567",
-    )
+/** Outcome of screening one number. */
+data class Verdict(
+    val action: Action,
+    val reason: String,
+    val source: String // contacts | rules | posture | lookup
+)
 
-    // Exact numbers to always reject.
-    private val blocklist = setOf<String>(
-        // "+18005550123",
-    )
+object Matchers {
+    fun digits(number: String?): String = number?.filter { it.isDigit() } ?: ""
+    fun last10(digits: String): String = digits.takeLast(10)
 
-    // Digit prefixes to reject (area codes / country codes / toll-free).
-    private val blockedPrefixes = listOf<String>(
-        // "1800", "1888", "1877", "1866", "1855", "1844", "1833", // US toll-free
-    )
+    fun matchesExact(digits: String, entries: Set<String>): Boolean =
+        entries.any { last10(digits) == last10(it.filter { c -> c.isDigit() }) }
 
-    // Regex rules matched against the raw digit string.
-    private val blockedPatterns = listOf<Regex>(
-        // Regex("^\\+?1?800\\d{7}$"),
-    )
+    fun matchesPrefix(digits: String, prefixes: List<String>): String? =
+        prefixes.firstOrNull { digits.startsWith(it) }
 
-    fun verdict(number: String?): Verdict {
-        if (number.isNullOrBlank()) return Verdict.UNKNOWN
-        val digits = number.filter { it.isDigit() }
-        val last10 = digits.takeLast(10)
-
-        if (allowlist.any { last10 == it.takeLast(10) }) return Verdict.ALLOW
-        if (blocklist.any { last10 == it.takeLast(10) }) return Verdict.BLOCK
-        if (blockedPrefixes.any { digits.startsWith(it) }) return Verdict.BLOCK
-        if (blockedPatterns.any { it.matches(digits) || it.matches(number) }) return Verdict.BLOCK
-
-        return Verdict.UNKNOWN
-    }
-
-    enum class Verdict { ALLOW, BLOCK, UNKNOWN }
+    fun matchesPattern(digits: String, raw: String?, patterns: List<String>): String? =
+        patterns.firstOrNull { p ->
+            runCatching {
+                Regex(p).matches(digits) || Regex(p).matches(raw.orEmpty())
+            }.getOrDefault(false)
+        }
 }

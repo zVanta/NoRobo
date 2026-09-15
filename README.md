@@ -5,9 +5,25 @@ using Android's `CallScreeningService`.
 
 ## What it does
 - Requests the "Caller ID & spam" role (Android 10+, API 29+).
-- Screens every call to your native dialer.
-- Applies a simple rule engine: allowlist, blocklist, prefix rules, regex rules.
-- Blocks matched callers; everything else passes through by default.
+- Runs in the background: the system binds `ScamScreeningService` for every
+  call routed through the telecom stack (native dialer and any app that
+  dials through the system). No app UI needs to be open.
+- Asks for Android runtime permissions: contacts (auto-allowlist) and
+  notifications (blocked-call alerts).
+- Rule engine: allowlist, blocklist, prefixes, regex — each with a per-list
+  response (reject / voicemail / silence).
+- Optional server lookup for unknown numbers (carrier, line type/VoIP,
+  spam score, business name) with local caching; VoIP numbers can be
+  auto-blocked.
+- Logs every screened call locally; uploads pending records to your backend
+  in the background via JobScheduler (works with the app closed, survives
+  reboots).
+
+## Permissions
+- `INTERNET` — server lookups/upload.
+- `READ_CONTACTS` — auto-allow contacts (toggleable).
+- `POST_NOTIFICATIONS` (Android 13+) — blocked-call notifications.
+- `RECEIVE_BOOT_COMPLETED` — reschedule the background upload job.
 
 ## Prerequisites
 - JDK 17
@@ -28,12 +44,31 @@ using Android's `CallScreeningService`.
     adb install app/build/outputs/apk/debug/app-debug.apk
 Then open the app and tap "Grant Call Screening Role".
 
+## Backend API contract (optional, self-hosted)
+The app talks only to your server; API keys for lookup providers live there.
+
+    POST /api/v1/lookup
+      body: {"number": "+15551234567", "token": "<shared>"}
+      200:  {"carrier": "...", "lineType": "mobile|landline|voip|...",
+             "spamScore": 0.0-1.0, "business": "..."}
+
+    POST /api/v1/calls
+      body: {"token": "<shared>", "calls": [
+              {"number": "...", "timestamp": 123, "action": "REJECT",
+               "reason": "...", "carrier": "...", "lineType": "...",
+               "spamScore": 0.9, "business": "..."}]}
+
+A reference Node.js implementation lives in `server/`.
+
 ## Customize the rules
-Edit `CallRules.kt`:
+Use the in-app "Rules & Status" screen (persisted locally):
 - allowlist       -> numbers that always ring through
 - blocklist       -> exact numbers to always reject
 - blockedPrefixes -> area/country-code prefixes to reject (e.g. "1800")
 - blockedPatterns -> regex rules against the raw digits
+- Each list has its own response: REJECT, VOICEMAIL, or SILENCE.
+- Toggles: allowlist-only mode, VoIP auto-block, contacts, notifications,
+  server lookup.
 
 ## Important limitations (read this)
 - Only intercepts calls through the NATIVE phone dialer. It will NOT see calls
