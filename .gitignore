@@ -3,3 +3,16 @@ build/
 local.properties
 .idea/
 *.iml
+
+# Secrets and local deployment config — never commit
+.env
+.env.*
+!**/.env.example
+*.pem
+*.key
+*.jks
+*.keystore
+config.local.*
+server/config.local.json
+server/data/
+
