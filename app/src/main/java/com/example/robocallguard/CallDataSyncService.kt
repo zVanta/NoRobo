@@ -6,15 +6,22 @@ import android.app.job.JobScheduler
 import android.app.job.JobService
 import android.content.ComponentName
 import android.content.Context
+import android.provider.Settings
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
+
+private fun deviceId(context: Context): String =
+    Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+        ?: "unknown"
 
 /**
- * Background sync: uploads pending call records to the user's backend.
- * Runs via JobScheduler — works with the app closed, persists across reboots.
+ * Background sync: uploads pending call records, then refreshes the local
+ * copy of the server's top-blocked feed so blocked numbers are caught
+ * instantly without a network round-trip during screening.
  */
 class CallDataSyncService : JobService() {
 
@@ -25,6 +32,7 @@ class CallDataSyncService : JobService() {
                 val settings = SettingsStore(context)
                 if (settings.baseUrl.isNotBlank() && settings.uploadEnabled) {
                     Uploader(context, settings.baseUrl, settings.token).uploadPending()
+                    syncRemoteBlocklist(context, settings.baseUrl, settings.token)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "sync failed", e)
@@ -35,6 +43,36 @@ class CallDataSyncService : JobService() {
     }
 
     override fun onStopJob(params: JobParameters?): Boolean = true
+
+    fun syncRemoteBlocklist(context: Context, baseUrl: String, token: String) {
+        val url = URL(
+            "${baseUrl.trimEnd('/')}/api/v1/top-blocked?token=" +
+                URLEncoder.encode(token, "UTF-8")
+        )
+        val conn = url.openConnection() as HttpURLConnection
+        try {
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 10_000
+            if (conn.responseCode !in 200..299) return
+            val text = conn.inputStream.bufferedReader().use { it.readText() }
+            val json = JSONObject(text)
+            val arr = json.optJSONArray("numbers") ?: return
+            val entries = mutableListOf<Pair<String, Double>>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val number = obj.optString("number")
+                val score = obj.optDouble("score", 0.0)
+                if (number.length >= 7) entries.add(number to score)
+            }
+            CallLogStore(context).syncRemoteBlock(entries)
+            Log.i(TAG, "synced ${entries.size} blocked numbers")
+        } catch (e: Exception) {
+            Log.w(TAG, "blocklist sync failed", e)
+        } finally {
+            conn.disconnect()
+        }
+    }
 
     class Uploader(
         private val context: Context,
@@ -62,6 +100,7 @@ class CallDataSyncService : JobService() {
             }
             val body = JSONObject()
                 .put("token", token)
+                .put("device", deviceId(context))
                 .put("calls", array)
                 .toString()
 

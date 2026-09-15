@@ -43,6 +43,21 @@ class ScreeningEngine(context: Context) {
         Matchers.matchesPattern(digits, number, rules.blockedPatterns)?.let {
             return Verdict(rules.patternAction, "pattern $it", "rules")
         }
+
+        // Server reputation feed synced to this device (no network needed here).
+        if (settings.remoteBlocklistEnabled) {
+            val remoteScore = logStore.isRemoteBlocked(digits.takeLast(10))
+            if (remoteScore != null && remoteScore >= settings.spamThreshold.toDouble()) {
+                return Verdict(rules.blocklistAction, "remote blocklist score $remoteScore", "server")
+            }
+        }
+
+        // Neighbor spoofing: caller shares your NPA-NXX but is not a contact.
+        val myNpa = settings.myNpanxx.filter { it.isDigit() }
+        if (myNpa.length in 6..7 && digits.length == 10 && digits.startsWith(myNpa)) {
+            return Verdict(rules.patternAction, "neighbor spoof (your NPA-NXX)", "heuristic")
+        }
+
         if (settings.allowlistOnly) {
             return Verdict(rules.allowlistOnlyAction, "unknown (allowlist-only)", "posture")
         }

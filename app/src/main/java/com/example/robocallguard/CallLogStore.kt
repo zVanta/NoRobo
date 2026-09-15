@@ -28,9 +28,16 @@ data class CallRecord(
     val uploaded: Int
 )
 
+data class SmsRecord(
+    val sender: String,
+    val body: String,
+    val ts: Long,
+    val flag: String
+)
+
 /** Local SQLite storage: every-call log + lookup cache. */
 class CallLogStore(context: Context) :
-    SQLiteOpenHelper(context, "calls.db", null, 1) {
+    SQLiteOpenHelper(context, "calls.db", null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -55,12 +62,39 @@ class CallLogStore(context: Context) :
                 business TEXT,
                 checked_at INTEGER NOT NULL)"""
         )
+        db.execSQL(
+            """CREATE TABLE remote_block (
+                number TEXT PRIMARY KEY,
+                score REAL NOT NULL,
+                added_at INTEGER NOT NULL)"""
+        )
+        db.execSQL(
+            """CREATE TABLE sms (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sender TEXT NOT NULL,
+                body TEXT,
+                ts INTEGER NOT NULL,
+                flag TEXT NOT NULL)"""
+        )
     }
 
     override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
-        db.execSQL("DROP TABLE IF EXISTS calls")
-        db.execSQL("DROP TABLE IF EXISTS lookup_cache")
-        onCreate(db)
+        if (old < 2) {
+            db.execSQL(
+                """CREATE TABLE IF NOT EXISTS remote_block (
+                    number TEXT PRIMARY KEY,
+                    score REAL NOT NULL,
+                    added_at INTEGER NOT NULL)"""
+            )
+            db.execSQL(
+                """CREATE TABLE IF NOT EXISTS sms (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sender TEXT NOT NULL,
+                    body TEXT,
+                    ts INTEGER NOT NULL,
+                    flag TEXT NOT NULL)"""
+            )
+        }
     }
 
     fun log(number: String, action: Action, reason: String, lookup: LookupResult? = null) {
@@ -162,5 +196,70 @@ class CallLogStore(context: Context) :
 
     fun clearAll() {
         writableDatabase.delete("calls", null, null)
+    }
+
+    // ---- Remote blocklist (synced from the server) ------------------------
+
+    fun isRemoteBlocked(number: String): Double? {
+        readableDatabase.query(
+            "remote_block", null, "number = ?",
+            arrayOf(number), null, null, null
+        ).use { c ->
+            if (c.moveToFirst()) {
+                return c.getDouble(c.getColumnIndexOrThrow("score"))
+            }
+        }
+        return null
+    }
+
+    fun syncRemoteBlock(entries: List<Pair<String, Double>>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete("remote_block", null, null)
+            entries.forEach { (number, score) ->
+                val cv = ContentValues().apply {
+                    put("number", number)
+                    put("score", score)
+                    put("added_at", System.currentTimeMillis())
+                }
+                db.insert("remote_block", null, cv)
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    // ---- SMS log ------------------------------------------------------------
+
+    fun logSms(sender: String, body: String, flag: String) {
+        val cv = ContentValues().apply {
+            put("sender", sender)
+            put("body", body)
+            put("ts", System.currentTimeMillis())
+            put("flag", flag)
+        }
+        writableDatabase.insert("sms", null, cv)
+    }
+
+    fun recentSms(limit: Int): List<SmsRecord> {
+        val out = mutableListOf<SmsRecord>()
+        readableDatabase.query(
+            "sms", null, null, null, null, null, "id DESC", limit.toString()
+        ).use { c ->
+            val i = { col: String -> c.getColumnIndexOrThrow(col) }
+            while (c.moveToNext()) {
+                out.add(
+                    SmsRecord(
+                        sender = c.getString(i("sender")),
+                        body = c.getString(i("body")) ?: "",
+                        ts = c.getLong(i("ts")),
+                        flag = c.getString(i("flag"))
+                    )
+                )
+            }
+        }
+        return out
     }
 }

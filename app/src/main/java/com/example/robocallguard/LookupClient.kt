@@ -41,4 +41,28 @@ class LookupClient(private val baseUrl: String, private val token: String) {
             conn.disconnect()
         }
     }
+
+    /** POST /api/v1/report — community spam report. */
+    fun report(number: String, category: String): Boolean {
+        val url = URL("${baseUrl.trimEnd('/')}/api/v1/report")
+        val conn = url.openConnection() as HttpURLConnection
+        return try {
+            conn.requestMethod = "POST"
+            conn.connectTimeout = 5000
+            conn.readTimeout = 5000
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.doOutput = true
+            val body = JSONObject()
+                .put("number", number)
+                .put("category", category)
+                .put("token", token)
+                .toString()
+            conn.outputStream.use { it.write(body.toByteArray()) }
+            conn.responseCode in 200..299
+        } catch (_: Exception) {
+            false
+        } finally {
+            conn.disconnect()
+        }
+    }
 }

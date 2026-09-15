@@ -1,0 +1,17 @@
+[Unit]
+Description=RobocallGuard backend
+After=network.target
+
+[Service]
+Type=simple
+User=robocallguard
+WorkingDirectory=/opt/robocallguard
+ExecStart=/usr/bin/node /opt/robocallguard/index.js
+EnvironmentFile=/opt/robocallguard/.env
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

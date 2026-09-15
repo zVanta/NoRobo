@@ -2,6 +2,7 @@ package com.example.robocallguard
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.role.RoleManager
 import android.content.pm.PackageManager
 import android.os.Build
@@ -33,6 +34,9 @@ class MainActivity : Activity() {
     private lateinit var serverInner: LinearLayout
     private lateinit var logArea: LinearLayout
     private lateinit var logList: ListView
+
+    private var logCalls = listOf<CallRecord>()
+    private var logSms = listOf<SmsRecord>()
 
     private val timeFmt = SimpleDateFormat("MM-dd HH:mm", Locale.US)
 
@@ -82,6 +86,13 @@ class MainActivity : Activity() {
         serverScroll = ScrollView(this).apply { addView(serverInner) }
 
         logList = ListView(this)
+        logList.setOnItemClickListener { _, _, position, _ ->
+            when {
+                position < logCalls.size -> showCallActions(logCalls[position])
+                position < logCalls.size + logSms.size ->
+                    showSmsActions(logSms[position - logCalls.size])
+            }
+        }
         logArea = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             val actions = LinearLayout(this@MainActivity).apply {
@@ -141,9 +152,12 @@ class MainActivity : Activity() {
         val notif = Build.VERSION.SDK_INT < 33 ||
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
+        val sms = checkSelfPermission(Manifest.permission.RECEIVE_SMS) ==
+            PackageManager.PERMISSION_GRANTED
         return "Screening role: ${if (role) "ACTIVE" else "NOT GRANTED"}\n" +
             "Contacts permission: ${if (contacts) "granted" else "missing"}\n" +
-            "Notifications permission: ${if (notif) "granted" else "missing"}"
+            "Notifications permission: ${if (notif) "granted" else "missing"}\n" +
+            "SMS permission: ${if (sms) "granted" else "missing"}"
     }
 
     private fun ensurePermissions() {
@@ -158,6 +172,11 @@ class MainActivity : Activity() {
             PackageManager.PERMISSION_GRANTED
         ) {
             needed += Manifest.permission.POST_NOTIFICATIONS
+        }
+        if (checkSelfPermission(Manifest.permission.RECEIVE_SMS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            needed += Manifest.permission.RECEIVE_SMS
         }
         if (needed.isNotEmpty()) {
             requestPermissions(needed.toTypedArray(), REQ_PERMS)
@@ -202,6 +221,25 @@ class MainActivity : Activity() {
             { settings.notificationsEnabled }, { settings.notificationsEnabled = it })
         addToggle(rulesInner, "Server lookup for unknown numbers",
             { settings.lookupEnabled }, { settings.lookupEnabled = it })
+        addToggle(rulesInner, "Remote blocklist (server top-blocked)",
+            { settings.remoteBlocklistEnabled }, { settings.remoteBlocklistEnabled = it })
+        addToggle(rulesInner, "SMS spam alerts",
+            { settings.smsAlertsEnabled }, { settings.smsAlertsEnabled = it })
+
+        rulesInner.addView(label("Your NPA-NXX (e.g. 212555) — flags neighbor spoofing"))
+        val npaInput = EditText(this).apply {
+            hint = "212555"
+            setText(settings.myNpanxx)
+            inputType = InputType.TYPE_CLASS_PHONE
+        }
+        rulesInner.addView(npaInput)
+        rulesInner.addView(Button(this).apply {
+            text = "Save NPA-NXX"
+            setOnClickListener {
+                settings.myNpanxx = npaInput.text.toString().trim()
+                Toast.makeText(this@MainActivity, "Saved", Toast.LENGTH_SHORT).show()
+            }
+        })
 
         addActionButton(rulesInner, "Blocklist action", { rules.blocklistAction }) {
             rules.blocklistAction = it
@@ -377,7 +415,10 @@ class MainActivity : Activity() {
     }
 
     private fun refreshLog() {
-        val rows = logStore.recent(100).map { r ->
+        logCalls = logStore.recent(100)
+        logSms = logStore.recentSms(50)
+        val rows = mutableListOf<String>()
+        rows += logCalls.map { r ->
             val t = timeFmt.format(Date(r.timestamp))
             val extra = listOfNotNull(
                 r.lineType,
@@ -388,7 +429,70 @@ class MainActivity : Activity() {
             "$t  ${r.number}\n    ${r.action} — ${r.reason}" +
                 if (extra.isNotBlank()) "\n    $extra" else ""
         }
+        rows += logSms.map { s ->
+            val t = timeFmt.format(Date(s.ts))
+            "$t  SMS ${s.sender}\n    flag: ${s.flag} — ${s.body.take(80)}"
+        }
         logList.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, rows)
+    }
+
+    private fun showCallActions(r: CallRecord) {
+        AlertDialog.Builder(this)
+            .setTitle(r.number)
+            .setItems(
+                arrayOf("Report as spam", "Block this number", "Allow this number")
+            ) { _, which ->
+                when (which) {
+                    0 -> reportSpam(r.number)
+                    1 -> {
+                        rules.blocklist = rules.blocklist + r.number
+                        rebuildRules()
+                        refreshLog()
+                    }
+                    2 -> {
+                        rules.allowlist = rules.allowlist + r.number
+                        rebuildRules()
+                        refreshLog()
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun showSmsActions(s: SmsRecord) {
+        AlertDialog.Builder(this)
+            .setTitle(s.sender)
+            .setItems(
+                arrayOf("Report as spam", "Block this number")
+            ) { _, which ->
+                when (which) {
+                    0 -> reportSpam(s.sender)
+                    1 -> {
+                        rules.blocklist = rules.blocklist + s.sender
+                        rebuildRules()
+                        refreshLog()
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun reportSpam(number: String) {
+        if (settings.baseUrl.isBlank()) {
+            Toast.makeText(this, "Set the backend URL first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        Thread {
+            val ok = LookupClient(settings.baseUrl, settings.token)
+                .report(number, "spam")
+            runOnUiThread {
+                Toast.makeText(
+                    this,
+                    if (ok) "Reported — thanks" else "Report failed (check server)",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }.start()
     }
 
     companion object {

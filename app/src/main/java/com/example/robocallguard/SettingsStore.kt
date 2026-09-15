@@ -47,4 +47,17 @@ class SettingsStore(context: Context) {
     var spamThreshold: Float
         get() = prefs.getFloat("spamThreshold", 0.7f)
         set(v) = prefs.edit().putFloat("spamThreshold", v).apply()
+
+    /** Your own NPA-NXX (e.g. 212555) — used to flag neighbor spoofing. */
+    var myNpanxx: String
+        get() = prefs.getString("myNpanxx", "") ?: ""
+        set(v) = prefs.edit().putString("myNpanxx", v).apply()
+
+    var remoteBlocklistEnabled: Boolean
+        get() = prefs.getBoolean("remoteBlocklistEnabled", true)
+        set(v) = prefs.edit().putBoolean("remoteBlocklistEnabled", v).apply()
+
+    var smsAlertsEnabled: Boolean
+        get() = prefs.getBoolean("smsAlertsEnabled", true)
+        set(v) = prefs.edit().putBoolean("smsAlertsEnabled", v).apply()
 }

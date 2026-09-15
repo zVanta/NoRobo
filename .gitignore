@@ -16,3 +16,6 @@ config.local.*
 server/config.local.json
 server/data/
 
+# Node
+node_modules/
+

@@ -35,4 +35,20 @@ object Notifications {
             .build()
         context.getSystemService(NotificationManager::class.java).notify(1001, notification)
     }
+
+    fun smsAlert(context: Context, sender: String, flag: String) {
+        ensureChannel(context)
+        val hasPerm = Build.VERSION.SDK_INT < 33 ||
+            context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!hasPerm) return
+
+        val notification = Notification.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle("Possible spam SMS")
+            .setContentText("$sender — $flag")
+            .setAutoCancel(true)
+            .build()
+        context.getSystemService(NotificationManager::class.java).notify(1002, notification)
+    }
 }
