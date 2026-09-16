@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_status"
+        android:icon="@drawable/ic_status"
+        android:title="Status" />
+    <item
+        android:id="@+id/nav_rules"
+        android:icon="@drawable/ic_rules"
+        android:title="Rules" />
+    <item
+        android:id="@+id/nav_log"
+        android:icon="@drawable/ic_log"
+        android:title="Log" />
+    <item
+        android:id="@+id/nav_server"
+        android:icon="@drawable/ic_server"
+        android:title="Server" />
+</menu>

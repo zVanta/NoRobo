@@ -92,6 +92,38 @@ class LookupClient(private val baseUrl: String, private val token: String) {
         }
     }
 
+    /** Human-readable probe for the settings screen (distinguishes error causes). */
+    fun probe(number: String): String {
+        val url = URL("${baseUrl.trimEnd('/')}/api/v1/lookup")
+        return try {
+            val conn = url.openConnection() as HttpURLConnection
+            try {
+                conn.requestMethod = "POST"
+                conn.connectTimeout = 3000
+                conn.readTimeout = 3000
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.doOutput = true
+                val body = JSONObject()
+                    .put("number", number)
+                    .put("token", token)
+                    .toString()
+                conn.outputStream.use { it.write(body.toByteArray()) }
+                when {
+                    conn.responseCode in 200..299 ->
+                        "OK: ${conn.inputStream.bufferedReader().use { it.readText() }.take(160)}"
+                    conn.responseCode == 401 ->
+                        "HTTP 401 — wrong or missing API token"
+                    else ->
+                        "HTTP ${conn.responseCode} — check server"
+                }
+            } finally {
+                conn.disconnect()
+            }
+        } catch (e: Exception) {
+            "Connection failed — check URL/network: ${e.javaClass.simpleName}"
+        }
+    }
+
     /** POST /api/v1/report — community spam report. */
     fun report(number: String, category: String): Boolean {
         val url = URL("${baseUrl.trimEnd('/')}/api/v1/report")

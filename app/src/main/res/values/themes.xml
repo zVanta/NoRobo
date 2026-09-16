@@ -1,3 +1,7 @@
 <resources>
-    <style name="Theme.RobocallGuard" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.RobocallGuard" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/brand_blue</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorSecondary">@color/brand_green</item>
+    </style>
 </resources>
