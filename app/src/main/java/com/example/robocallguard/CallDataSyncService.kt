@@ -130,29 +130,38 @@ class CallDataSyncService : JobService() {
         private const val ONCE_JOB = 102
 
         fun schedulePeriodic(context: Context) {
-            val scheduler = context.getSystemService(JobScheduler::class.java)
-            if (scheduler.getPendingJob(PERIODIC_JOB) != null) return
-            val info = JobInfo.Builder(
-                PERIODIC_JOB,
-                ComponentName(context, CallDataSyncService::class.java)
-            )
-                .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-                .setPeriodic(6 * 60 * 60 * 1000L)
-                .setPersisted(true)
-                .build()
-            scheduler.schedule(info)
+            try {
+                val scheduler = context.getSystemService(JobScheduler::class.java)
+                if (scheduler.getPendingJob(PERIODIC_JOB) != null) return
+                val info = JobInfo.Builder(
+                    PERIODIC_JOB,
+                    ComponentName(context, CallDataSyncService::class.java)
+                )
+                    .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+                    .setPeriodic(6 * 60 * 60 * 1000L)
+                    .setPersisted(true)
+                    .build()
+                scheduler.schedule(info)
+            } catch (e: Exception) {
+                // Scheduling must never crash the app process.
+                Log.w(TAG, "schedulePeriodic failed", e)
+            }
         }
 
         fun scheduleOnce(context: Context) {
-            val scheduler = context.getSystemService(JobScheduler::class.java)
-            val info = JobInfo.Builder(
-                ONCE_JOB,
-                ComponentName(context, CallDataSyncService::class.java)
-            )
-                .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-                .setMinimumLatency(5_000)
-                .build()
-            scheduler.schedule(info)
+            try {
+                val scheduler = context.getSystemService(JobScheduler::class.java)
+                val info = JobInfo.Builder(
+                    ONCE_JOB,
+                    ComponentName(context, CallDataSyncService::class.java)
+                )
+                    .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+                    .setMinimumLatency(5_000)
+                    .build()
+                scheduler.schedule(info)
+            } catch (e: Exception) {
+                Log.w(TAG, "scheduleOnce failed", e)
+            }
         }
     }
 }

@@ -7,7 +7,11 @@ import android.content.Intent
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            CallDataSyncService.schedulePeriodic(context)
+            try {
+                CallDataSyncService.schedulePeriodic(context)
+            } catch (_: Exception) {
+                // Never crash the process from a broadcast.
+            }
         }
     }
 }
